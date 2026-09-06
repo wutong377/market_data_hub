@@ -1,0 +1,2 @@
+[console_scripts]
+market-data = market_data_hub.cli:main

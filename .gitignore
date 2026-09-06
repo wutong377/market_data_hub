@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+
+# 行情与运行态数据必须留在仓库外
+market_data_hub_data/
+data/
+raw/
+curated/
+manifests/
+trash/
+logs/
+state/

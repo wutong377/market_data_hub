@@ -1,0 +1,43 @@
+version: 1
+provider:
+  name: futu_opend
+  host: 127.0.0.1
+  port: 11111
+  market_snapshot_limit: 50
+  option_chain_limit: 8
+  market_snapshot_hot_reserved: 8
+market:
+  timezone: America/New_York
+  calendar: XNYS
+  session_start: "09:30"
+  session_end: "16:00"
+  max_dte: 180
+collection:
+  surface_interval_seconds: 60
+  hot_interval_seconds: 5
+  hot_reselect_seconds: 300
+  surface_min_dte: 0
+  surface_max_dte: 90
+  surface_min_moneyness: 0.70
+  surface_max_moneyness: 1.30
+  hot_max_dte: 45
+  hot_moneyness_min: 0.85
+  hot_moneyness_max: 1.15
+  hot_expiry_targets: [0, 7, 14, 28]
+  hot_strikes_per_expiry: 12
+  hot_cap_per_underlying: 96
+  hot_reselect_price_change: 0.01
+retention:
+  raw_days: 7
+  trash_days: 3
+  warn_free_gb: 30
+  stop_free_gb: 10
+underlyings:
+  - code: US.QQQ
+    name: 纳斯达克100 ETF
+  - code: US.TQQQ
+    name: 纳指3倍做多
+  - code: US.MSTR
+    name: MicroStrategy
+  - code: US.TSLA
+    name: 特斯拉
