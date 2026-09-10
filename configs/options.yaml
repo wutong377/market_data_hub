@@ -29,9 +29,11 @@ collection:
   hot_reselect_price_change: 0.01
 retention:
   # Raw 只作为压缩缓冲区:curated 与 raw 已逐行逐字段验证等价(见 ops/verify_raw_vs_curated.py),
-  # 且清理前必须通过 manifest 哈希与行数对账,压缩失败时不会删除,故保留 1 天即可。
+  # 且清理前必须通过 manifest 哈希与行数对账,压缩失败时不会删除,故保留期可以很短。
+  # 实际占用天数约为 max(raw_days, trash_days):trash 的计时基于目录原始 mtime(接近交易日),
+  # 而非移入时刻,所以两者中较大的那个决定最终删除时间。
   raw_days: 1
-  trash_days: 3
+  trash_days: 1
   warn_free_gb: 30
   stop_free_gb: 10
 underlyings:
