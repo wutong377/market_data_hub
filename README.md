@@ -34,6 +34,9 @@ pytest
 Hot 层会把配置中的标的按不超过 400 个代码合并请求，再拆分为各标的逻辑快照；Surface/Anchor
 按 API 批次让出调度权，Hot 拥有优先限速额度。每日 compaction 通过后自动执行 Raw 生命周期治理。
 
-Raw SQLite 默认保留 7 天，随后移动到 `trash` 保留 3 天；Parquet 和 manifest 长期保留。清理前必须
-通过 Raw/manifest 行数、状态和 Parquet SHA256 对账。Reader 的时间查询默认按
-`scheduled_at_utc`，需要分析网络延迟时显式传入 `time_basis="received"`。
+Raw SQLite 默认保留 1 天，随后移动到 `trash` 保留 3 天；Parquet 和 manifest 长期保留。清理前必须
+通过 Raw/manifest 行数、状态和 Parquet SHA256 对账，对账不通过则保留 Raw（压缩失败或尚未压缩的
+交易日不会被清理）。Raw 仅作为压缩缓冲区，内容与 Curated 逐行逐字段等价、不提供额外信息，因此
+保留期可以很短。需要复核一致性时运行 `python ops/verify_raw_vs_curated.py`：它按 manifest 读取
+Curated（与 Reader 路径一致）做全量逐字段比对，并报告未被 manifest 引用的孤儿 Parquet。Reader 的
+时间查询默认按 `scheduled_at_utc`，需要分析网络延迟时显式传入 `time_basis="received"`。

@@ -28,7 +28,9 @@ collection:
   hot_cap_per_underlying: 96
   hot_reselect_price_change: 0.01
 retention:
-  raw_days: 7
+  # Raw 只作为压缩缓冲区:curated 与 raw 已逐行逐字段验证等价(见 ops/verify_raw_vs_curated.py),
+  # 且清理前必须通过 manifest 哈希与行数对账,压缩失败时不会删除,故保留 1 天即可。
+  raw_days: 1
   trash_days: 3
   warn_free_gb: 30
   stop_free_gb: 10
