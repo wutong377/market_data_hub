@@ -441,7 +441,12 @@ class OptionCollector:
                     logger.exception("Hot 合并采集失败")
                 finally:
                     hot_running = False
-                    next_hot_due = time_module.monotonic() + self.config.collection.hot_interval_seconds
+                    interval = self.config.collection.hot_interval_seconds
+                    # 固定节拍:下次闹钟锚定上次闹钟 + 间隔,本圈耗时不再滚入下周期;
+                    # 若已超时(被 surface/anchor 挡住),顺延到现在,不追补堆积。
+                    next_hot_due = next_hot_due + interval
+                    if next_hot_due <= time_module.monotonic():
+                        next_hot_due = time_module.monotonic() + interval
 
             self._write_state("running")
             while not self._stop_requested:
@@ -531,7 +536,7 @@ class OptionCollector:
                             daemon=False,
                         )
                         compaction_thread.start()
-                time_module.sleep(1)
+                time_module.sleep(0.2)
         finally:
             signal.signal(signal.SIGTERM, previous_sigterm)
             if compaction_thread is not None and compaction_thread.is_alive():
