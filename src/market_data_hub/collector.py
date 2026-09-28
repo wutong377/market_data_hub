@@ -403,6 +403,7 @@ class OptionCollector:
             hot_running = False
             last_anchor: set[str] = set()
             last_compaction_attempt: date | None = None
+            last_raw_date: str | None = None
             last_heartbeat = 0.0
             compaction_thread: threading.Thread | None = None
             compaction_error: str | None = None
@@ -483,6 +484,18 @@ class OptionCollector:
                 current_local = current_timestamp.tz_convert(self.config.market.timezone)
                 elapsed = (current_local.to_pydatetime() - start).total_seconds()
                 closing = (end - current_local.to_pydatetime()).total_seconds()
+                current_trade_date = current_local.date().isoformat()
+                if current_trade_date != last_raw_date:
+                    # 跨交易日必须关闭上一日的 Raw 连接:否则长跑进程会一直持有
+                    # 已被 prune 删除的文件句柄,磁盘空间无法释放。
+                    if last_raw_date is not None:
+                        closed_dates = self.raw.close_stale_dates(current_trade_date)
+                        if closed_dates:
+                            logger.info(
+                                "跨交易日,关闭上一日 Raw 连接: closed=%s keep=%s",
+                                closed_dates, current_trade_date,
+                            )
+                    last_raw_date = current_trade_date
                 if elapsed >= 0 and last_chain_date != current_local.date() and elapsed < 1800:
                     for item in self.config.underlyings:
                         try:

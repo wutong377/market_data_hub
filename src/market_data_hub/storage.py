@@ -273,27 +273,47 @@ class RawSqliteStore:
             return payload
         return frame
 
-    def close(self) -> None:
-        for trade_date, connection in self._connections.items():
+    def _close_connection(self, trade_date: str, connection: sqlite3.Connection) -> None:
+        """收尾并关闭单个连接；即使收尾失败也必须释放文件句柄。"""
+        try:
+            running = connection.execute(
+                "SELECT capture_id, underlying, tier FROM captures WHERE status = 'running'"
+            ).fetchall()
+            for capture_id, underlying, tier in running:
+                connection.execute(
+                    "UPDATE captures SET status='partial', error=? WHERE capture_id=?",
+                    ("process_interrupted", capture_id),
+                )
+                connection.execute(
+                    "INSERT INTO gaps(trade_date,capture_id,underlying,tier,reason,created_at_utc) VALUES(?,?,?,?,?,?)",
+                    (trade_date, capture_id, underlying, tier, "process_interrupted", now_utc().isoformat()),
+                )
+            connection.commit()
+            connection.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        except Exception:
+            logger.warning("关闭前收尾 SQLite 连接异常: trade_date=%s", trade_date, exc_info=True)
+        finally:
             try:
-                running = connection.execute(
-                    "SELECT capture_id, underlying, tier FROM captures WHERE status = 'running'"
-                ).fetchall()
-                for capture_id, underlying, tier in running:
-                    connection.execute(
-                        "UPDATE captures SET status='partial', error=? WHERE capture_id=?",
-                        ("process_interrupted", capture_id),
-                    )
-                    connection.execute(
-                        "INSERT INTO gaps(trade_date,capture_id,underlying,tier,reason,created_at_utc) VALUES(?,?,?,?,?,?)",
-                        (trade_date, capture_id, underlying, tier, "process_interrupted", now_utc().isoformat()),
-                    )
-                connection.commit()
-                connection.execute("PRAGMA wal_checkpoint(PASSIVE)")
                 connection.close()
             except Exception:
-                logger.warning("关闭 SQLite 异常", exc_info=True)
-        self._connections.clear()
+                logger.warning("关闭 SQLite 连接失败: trade_date=%s", trade_date, exc_info=True)
+
+    def close_stale_dates(self, keep: str) -> list[str]:
+        """关闭除 keep 之外所有交易日的缓存连接，返回被关闭的交易日。
+
+        长跑进程若一直持有已被 prune 删除的 Raw 文件句柄，磁盘空间不会释放：
+        句柄存活期间 unlink 只是去掉目录项，inode 与数据块仍被占用。
+        因此每跨一个交易日就必须主动关闭上一交易日的连接。
+        """
+        closed: list[str] = []
+        for trade_date in [item for item in self._connections if item != keep]:
+            self._close_connection(trade_date, self._connections.pop(trade_date))
+            closed.append(trade_date)
+        return closed
+
+    def close(self) -> None:
+        for trade_date in list(self._connections):
+            self._close_connection(trade_date, self._connections.pop(trade_date))
 
 
 class ParquetCompactor:
@@ -544,6 +564,7 @@ class ParquetCompactor:
         """清理前确认 Raw 已完整压缩，避免误删未完成交易日。"""
         if not raw_path.exists() or not manifest.get("quality", {}).get("passed", False):
             return False
+        connection = None
         try:
             connection = sqlite3.connect(f"file:{raw_path}?mode=ro", uri=True, timeout=5)
             counts = {
@@ -555,10 +576,15 @@ class ParquetCompactor:
                     "SELECT COUNT(*) FROM captures WHERE status != 'complete'"
                 ).fetchone()[0],
             }
-            connection.close()
         except Exception:
             logger.warning("读取 Raw manifest 对账失败: raw=%s", raw_path, exc_info=True)
             return False
+        finally:
+            if connection is not None:
+                try:
+                    connection.close()
+                except Exception:
+                    logger.warning("关闭对账连接失败: raw=%s", raw_path, exc_info=True)
         return (
             counts["running"] == 0
             and counts["capture_count"] == int(manifest.get("capture_count", -1))

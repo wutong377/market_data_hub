@@ -1,6 +1,8 @@
+import sqlite3
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from market_data_hub.schema import QUOTE_COLUMNS, UNDERLYING_COLUMNS
 from market_data_hub.reader import OptionDataReader
@@ -130,3 +132,26 @@ def test_interrupted_running_capture_becomes_partial_with_gap(tmp_path: Path):
     assert captures.loc[captures["capture_id"] == "running", "status"].iloc[0] == "partial"
     assert "process_interrupted" in gaps["reason"].tolist()
     recovered.close()
+
+
+def test_close_stale_dates_releases_previous_day_connection(tmp_path: Path):
+    """跨交易日后必须关掉上一日连接：句柄存活期间被 prune 删除的 Raw 文件占用的磁盘不会被释放。"""
+    store = RawSqliteStore(tmp_path)
+    quotes = _quote_frame()
+    for trade_date in ("2026-08-03", "2026-08-04"):
+        store.write_capture(
+            trade_date=trade_date, capture_id=f"c-{trade_date}", underlying="US.TEST", tier="hot",
+            scheduled_at_utc=f"{trade_date}T13:30:00+00:00", started_at_utc=f"{trade_date}T13:30:00+00:00",
+            completed_at_utc=f"{trade_date}T13:30:01+00:00", expected_rows=1, quotes=quotes,
+            underlying_quotes=pd.DataFrame(), finalize=True,
+        )
+    assert set(store._connections) == {"2026-08-03", "2026-08-04"}
+    previous_day = store._connections["2026-08-03"]
+
+    closed = store.close_stale_dates("2026-08-04")
+
+    assert closed == ["2026-08-03"]
+    assert set(store._connections) == {"2026-08-04"}
+    with pytest.raises(sqlite3.ProgrammingError):
+        previous_day.execute("SELECT 1")
+    store.close()
